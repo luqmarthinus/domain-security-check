@@ -10,7 +10,7 @@
 #   ./domain-security-check.sh -f domains.txt          # one domain per line
 #   ./domain-security-check.sh -H app.example.com example.com   # extra HTTPS hosts
 #   ./domain-security-check.sh --json example.com
-#   ./domain-security-check.sh --post <url> example.com          # Zapier webhook
+#   ./domain-security-check.sh --post <url> example.com          # also POST JSON to a webhook
 #
 # Runs on macOS (built-in bash 3.2) or Linux. Needs: dig, curl, openssl, whois.
 # Exit codes: 0 = no FAIL, 1 = at least one FAIL, 2 = bad usage
@@ -34,7 +34,7 @@ while [ $# -gt 0 ]; do
     -f) [ -r "${2:-}" ] || { echo "-f needs a readable file" >&2; exit 2; }
         while read -r line; do line=${line%%#*}; line=${line//[[:space:]]/}; [ -n "$line" ] && DOMAINS+=("$line"); done < "$2"; shift ;;
     -H) [ -n "${2:-}" ] || { echo "-H needs a hostname" >&2; exit 2; }; EXTRA_HOSTS+=("$2"); shift ;;
-    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+    -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     -*) echo "Unknown option: $1 (try --help)" >&2; exit 2 ;;
     *) DOMAINS+=("$1") ;;
   esac
