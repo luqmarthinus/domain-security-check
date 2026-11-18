@@ -32,7 +32,7 @@ while [ $# -gt 0 ]; do
     --json) OUTPUT=json ;;
     --post) [ -n "${2:-}" ] || { echo "--post needs a URL" >&2; exit 2; }; WEBHOOK_URL=$2; shift ;;
     -f) [ -r "${2:-}" ] || { echo "-f needs a readable file" >&2; exit 2; }
-        while read -r line; do line=${line%%#*}; line=$(echo $line); [ -n "$line" ] && DOMAINS+=("$line"); done < "$2"; shift ;;
+        while read -r line; do line=${line%%#*}; line=${line//[[:space:]]/}; [ -n "$line" ] && DOMAINS+=("$line"); done < "$2"; shift ;;
     -H) [ -n "${2:-}" ] || { echo "-H needs a hostname" >&2; exit 2; }; EXTRA_HOSTS+=("$2"); shift ;;
     -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
     -*) echo "Unknown option: $1 (try --help)" >&2; exit 2 ;;
@@ -82,9 +82,9 @@ dmarc_tag() {  # record tag -> value
 }
 
 check_tls() {  # host required(1/0)
-  local host=$1 required=$2 r code ecode emsg end exp days issuer
+  local host=$1 required=$2 r ecode emsg end exp days issuer
   r=$(curl -s -o /dev/null -m 12 -w '%{http_code}|%{exitcode}|%{errormsg}' "https://$host/" 2>/dev/null)
-  IFS='|' read -r code ecode emsg <<< "$r"
+  IFS='|' read -r _ ecode emsg <<< "$r"
   case ${ecode:-1} in
     0) ;;
     6) if [ "$required" = 1 ]; then record "https:$host" WARN "Name does not resolve"
@@ -134,7 +134,7 @@ check_domain() {
     record spf FAIL "$n_spf SPF records found; only one is allowed, so SPF fails everywhere."
   else
     case $(lower "$spf") in
-      *" -all"*|*" -all") all=PASS; w="hard fail (-all)" ;;
+      *" -all"*) all=PASS; w="hard fail (-all)" ;;
       *"~all"*) all=WARN; w="soft fail (~all): OK with an enforcing DMARC policy, otherwise use -all" ;;
       *"?all"*|*"+all"*|*" all"*) all=FAIL; w="'?all' / '+all' lets anyone send as $d" ;;
       *redirect=*) all=PASS; w="uses redirect" ;;
@@ -245,7 +245,7 @@ JSON=$(build_json)
 if [ "$OUTPUT" = json ]; then
   printf '%s\n' "$JSON"
 else
-  if [ -t 1 ]; then G=$'\033[32m' Y=$'\033[33m' R=$'\033[31m' C=$'\033[36m' B=$'\033[1m' N=$'\033[0m'; else G= Y= R= C= B= N=; fi
+  if [ -t 1 ]; then G=$'\033[32m' Y=$'\033[33m' R=$'\033[31m' C=$'\033[36m' B=$'\033[1m' N=$'\033[0m'; else G='' Y='' R='' C='' B='' N=''; fi
   last=""
   for ((i = 0; i < ${#R_ID[@]}; i++)); do
     if [ "${R_DOMAIN[i]}" != "$last" ]; then last=${R_DOMAIN[i]}; printf '\n%s%s%s\n' "$B" "$last" "$N"; fi
