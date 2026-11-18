@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # Keeps the SHA-pinned GitHub Actions in .github/workflows up to date.
+  # Dependabot opens a pull request with the new commit SHA and version comment.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: ci

@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    # ShellCheck comes preinstalled on GitHub's Ubuntu runners.
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to full commit SHAs (tags can be moved); Dependabot
+      # keeps the pins up to date. The comment shows the released version.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: ShellCheck (all severity levels)
+        run: |
+          shellcheck --version
+          shellcheck --shell=bash domain-security-check.sh
+
+  live-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install dig and whois (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq dnsutils whois
+
+      - name: Syntax with Apple's /bin/bash 3.2 and zsh (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          /bin/bash --version | head -1
+          /bin/bash -n domain-security-check.sh
+          zsh -n domain-security-check.sh
+
+      - name: Help and usage errors
+        run: |
+          bash domain-security-check.sh --help > /dev/null
+          set +e
+          bash domain-security-check.sh > /dev/null 2>&1
+          code=$?
+          set -e
+          [ "$code" -eq 2 ]
+
+      - name: Live check (example.com passes SPF/DMARC, expired.badssl.com fails)
+        run: |
+          printf '# test list\n  example.com  \n\n' > domains.txt
+          set +e
+          bash domain-security-check.sh --json -f domains.txt -H expired.badssl.com > report.json
+          code=$?
+          set -e
+          echo "exit code: $code"
+          [ "$code" -eq 1 ]
+          python3 -c '
+          import json
+          d = json.load(open("report.json"))
+          by = {(c["domain"], c["id"]): c["status"] for c in d["checks"]}
+          print(json.dumps(by, indent=1))
+          assert by[("example.com", "spf")] == "PASS", "SPF"
+          assert by[("example.com", "dmarc")] == "PASS", "DMARC"
+          assert by[("(extra hosts)", "https:expired.badssl.com")] == "FAIL", "expired certificate not detected"
+          print("live checks OK")
+          '

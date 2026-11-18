@@ -1,0 +1,10 @@
+# macOS
+.DS_Store
+
+# Reports and local domain lists
+*.json
+*.csv
+reports/
+
+# Secrets: webhook URLs belong in the environment, not in git
+*.env
