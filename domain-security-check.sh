@@ -66,7 +66,7 @@ days_until() { echo $(( ($1 - NOW) / 86400 )); }
 spf_lookups() {  # domain depth -> number of DNS-lookup mechanisms (recursive)
   local dom=$1 depth=$2 rec term t n=0
   [ "$depth" -gt 8 ] && { echo 99; return; }
-  rec=$(lower "$(txt "$dom" | grep -i '^v=spf1' | head -1)")
+  rec=$(lower "$(txt "$dom" | grep -i '^v=spf1' | sed -n 1p)")
   for term in $rec; do
     t=${term#[+~?-]}
     case $t in
@@ -77,8 +77,11 @@ spf_lookups() {  # domain depth -> number of DNS-lookup mechanisms (recursive)
   done
   echo $n
 }
+# Pipelines read all their input (sed -n 1p, awk without exit) instead of
+# stopping early: on Linux, GNU tools print "write error: Broken pipe" when
+# the next command quits before they finish writing.
 dmarc_tag() {  # record tag -> value
-  printf '%s' "$1" | tr -d ' ' | tr ';' '\n' | awk -F= -v t="$2" 'tolower($1) == t { print tolower($2); exit }'
+  printf '%s' "$1" | tr -d ' ' | tr ';' '\n' | awk -F= -v t="$2" '!found && tolower($1) == t { print tolower($2); found = 1 }'
 }
 
 check_tls() {  # host required(1/0)
@@ -152,7 +155,7 @@ check_domain() {
   fi
 
   # DMARC
-  dmarc=$(txt "_dmarc.$d" | grep -i '^v=DMARC1' | head -1)
+  dmarc=$(txt "_dmarc.$d" | grep -i '^v=DMARC1' | sed -n 1p)
   if [ -z "$dmarc" ]; then
     record dmarc FAIL "No DMARC record: spoofed mail from $d is not blocked and you get no reports."
   else
@@ -197,8 +200,8 @@ check_domain() {
   # Domain registration expiry (WHOIS formats vary by registry)
   w=$(whois "$d" 2>/dev/null)
   exp=$(printf '%s\n' "$w" | grep -iE 'expir|paid-till|renewal date|valid until' \
-        | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)
-  registrar=$(printf '%s\n' "$w" | grep -iE '^ *registrar:' | head -1 | sed -E 's/^ *[Rr]egistrar: *//')
+        | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | sed -n 1p)
+  registrar=$(printf '%s\n' "$w" | grep -iE '^ *registrar:' | sed -n 1p | sed -E 's/^ *[Rr]egistrar: *//')
   if [ -n "$exp" ]; then
     days=$(days_until "$(to_epoch "$exp" "%Y-%m-%d")")
     local dd="Registration expires $exp ($days days)${registrar:+, registrar $registrar}"
