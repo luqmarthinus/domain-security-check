@@ -8,7 +8,7 @@ Useful details:
 - steps or a test domain that reproduce it
 - your OS, `bash --version` and `curl --version`
 
-This is a personal project maintained in spare time. You can expect an acknowledgement within a week, and a fix or a plan within 30 days for confirmed issues.
+This is a personal project maintained in spare time, so responses and fixes are best effort, with no guaranteed timeline. Reports are still welcome and will be taken seriously.
 
 ## Supported versions
 Only the latest release and `main` receive fixes.
