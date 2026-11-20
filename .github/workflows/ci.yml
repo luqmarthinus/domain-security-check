@@ -60,16 +60,45 @@ jobs:
           bash domain-security-check.sh --json -f domains.txt -H expired.badssl.com > report.json
           code=$?
           set -e
-          echo "exit code: $code"
-          [ "$code" -eq 1 ]
-          python3 -c '
-          import json
-          d = json.load(open("report.json"))
-          by = {(c["domain"], c["id"]): c["status"] for c in d["checks"]}
-          for (dom, cid), status in sorted(by.items()):
-              print(f"{status:<5} {dom:<14} {cid}")
-          assert by[("example.com", "spf")] == "PASS", "SPF"
-          assert by[("example.com", "dmarc")] == "PASS", "DMARC"
-          assert by[("(extra hosts)", "https:expired.badssl.com")] == "FAIL", "expired certificate not detected"
+          # Print every result before asserting anything, so a failed run
+          # shows which check went wrong instead of only the exit code.
+          EXIT_CODE=$code python3 -c '
+          import json, os, sys
+          code = int(os.environ["EXIT_CODE"])
+          print(f"exit code: {code}")
+          try:
+              d = json.load(open("report.json"))
+          except ValueError:
+              print("::error::report.json is not valid JSON:")
+              print(open("report.json").read())
+              sys.exit(1)
+          checks = {(c["domain"], c["id"]): c for c in d["checks"]}
+          for (dom, cid), c in sorted(checks.items()):
+              status, detail = c["status"], c["detail"]
+              print(f"{status:<5} {dom:<14} {cid:<26} {detail}")
+
+          errors = []
+          bad = checks.get(("(extra hosts)", "https:expired.badssl.com"))
+          if bad is None:
+              errors.append("no result for expired.badssl.com")
+          elif bad["status"] != "FAIL":
+              # The script reports an unreachable host as WARN, not FAIL. Say so
+              # clearly: it is a runner network problem, not a script bug.
+              if "resolve" in bad["detail"] or "reachable" in bad["detail"]:
+                  errors.append("expired.badssl.com was unreachable from this runner "
+                                "(network problem, not a script bug): re-run the job")
+              else:
+                  errors.append("expired certificate not detected: " + bad["status"])
+          for cid in ("spf", "dmarc"):
+              status = checks.get(("example.com", cid), {}).get("status")
+              if status != "PASS":
+                  errors.append(f"example.com {cid}: expected PASS, got {status}")
+          if code != 1:
+              errors.append(f"exit code {code}, expected 1 (one FAIL)")
+
+          for e in errors:
+              print(f"::error::{e}")
+          if errors:
+              sys.exit(1)
           print("live checks OK")
           '

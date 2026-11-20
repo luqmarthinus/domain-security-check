@@ -1,6 +1,6 @@
 # domain-security-check
 
-[![CI](https://github.com/luqmarthinus/domain-security-check/actions/workflows/ci.yml/badge.svg)](https://github.com/luqmarthinus/domain-security-check/actions/workflows/ci.yml)
+[![CI](https://github.com/luqmarthinus/domain-security-check/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/luqmarthinus/domain-security-check/actions/workflows/ci.yml?query=branch%3Amain)
 
 A free check of a domain's email anti-spoofing and web security: SPF (including the 10-lookup limit), DKIM, DMARC, MTA-STS, TLS-RPT, MX, HTTPS certificate validity and expiry, and domain registration expiry. One bash script that runs on macOS and Linux, with JSON output and webhook alerts.
 
