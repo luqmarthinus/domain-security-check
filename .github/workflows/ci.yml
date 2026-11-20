@@ -20,7 +20,8 @@ jobs:
       - name: ShellCheck (all severity levels)
         run: |
           shellcheck --version
-          shellcheck --shell=bash domain-security-check.sh
+          shellcheck --shell=bash domain-security-check.sh tests/spf-limit.sh tests/fake-bin/dig
+          shellcheck --shell=sh tests/fake-bin/whois
 
   live-test:
     strategy:
@@ -43,6 +44,13 @@ jobs:
           /bin/bash --version | head -1
           /bin/bash -n domain-security-check.sh
           zsh -n domain-security-check.sh
+
+      # Planted DNS records, no live SPF lookups. On macOS this runs the script
+      # with Apple's /bin/bash 3.2, the oldest shell it supports.
+      - name: SPF lookup-limit tests (planted records)
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then export BASH_UNDER_TEST=/bin/bash; fi
+          bash tests/spf-limit.sh
 
       - name: Help and usage errors
         run: |

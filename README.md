@@ -54,7 +54,7 @@ Result: WARN (0 fail, 1 warn, 7 pass)
 | Check | What it looks at |
 |---|---|
 | MX | Mail servers; recognises Google Workspace, Microsoft 365 and "null MX" (a domain that receives no mail) |
-| SPF | Exactly one record, how strict it is (`-all` / `~all` / `?all`), DNS lookups counted recursively against the limit of 10 (over the limit, receivers treat SPF as broken) |
+| SPF | Exactly one record, how strict it is (`-all` / `~all` / `?all`), DNS lookups counted recursively against the limit of 10 (over the limit, receivers treat SPF as broken). Like a receiver, it stops counting once past the limit and names include loops, so a hostile or broken record can't stall the run |
 | DMARC | Record present, policy (`reject` / `quarantine` / `none`), `pct=`, reporting address (`rua=`) |
 | DKIM | Keys under common selectors (`google`, `selector1`, `k1`, …); detects wildcard records |
 | MTA-STS, TLS-RPT | Optional mail-transport hardening (shown as INFO) |
@@ -131,7 +131,7 @@ Edit the block near the top of the script:
 - **Not checked:** DNSSEC, CAA, BIMI, the DMARC `sp=` tag, DMARC alignment settings, and SPF void-lookup limits.
 
 ## Tested
-macOS 26 against google.com, example.com and badssl.com's deliberately broken test sites. CI runs ShellCheck and live checks on both macOS and Ubuntu on every push.
+macOS 26 against google.com, example.com and badssl.com's deliberately broken test sites. CI runs ShellCheck, live checks, and SPF lookup-limit tests against planted DNS records (`bash tests/spf-limit.sh`, including loops and oversized trees) on both macOS and Ubuntu on every push.
 
 ## License
 [MIT](LICENSE) © 2026 Luqmaan Marthinus. Free to use, modify and share; provided as-is, without warranty.

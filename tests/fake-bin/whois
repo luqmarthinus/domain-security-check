@@ -1,0 +1,4 @@
+#!/bin/sh
+# Test double for whois, used only by tests/spf-limit.sh: returns no data, so
+# the tests make no WHOIS queries (the expiry check then reports INFO).
+exit 0
