@@ -1,8 +1,20 @@
 name: CI
 
+# Run once per change. Pull requests test the branch merged into main; pushes
+# run only on main, to test the real merge commit. Without the branch filter,
+# every pull request ran twice (push + pull_request) and tag pushes re-tested
+# a commit main had already tested.
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
+
+# A new push to a pull request cancels its older, now-pointless run. Runs on
+# main are never cancelled, so every merge commit gets a complete result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -11,6 +23,7 @@ jobs:
   shellcheck:
     # ShellCheck comes preinstalled on GitHub's Ubuntu runners.
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       # Actions are pinned to full commit SHAs (tags can be moved); Dependabot
       # keeps the pins up to date. The comment shows the released version.
@@ -28,6 +41,9 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    # A normal run takes about a minute; the cap stops a hang (like the old
+    # SPF loop) burning hours of runner time. Allows for 3 live attempts.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -56,49 +72,22 @@ jobs:
       - name: Live check (example.com passes SPF/DMARC, expired.badssl.com fails)
         run: |
           printf '# test list\n  example.com  \n\n' > domains.txt
-          set +e
-          bash domain-security-check.sh --json -f domains.txt -H expired.badssl.com > report.json
-          code=$?
-          set -e
-          # Print every result before asserting anything, so a failed run
-          # shows which check went wrong instead of only the exit code.
-          EXIT_CODE=$code python3 -c '
-          import json, os, sys
-          code = int(os.environ["EXIT_CODE"])
-          print(f"exit code: {code}")
-          try:
-              d = json.load(open("report.json"))
-          except ValueError:
-              print("::error::report.json is not valid JSON:")
-              print(open("report.json").read())
-              sys.exit(1)
-          checks = {(c["domain"], c["id"]): c for c in d["checks"]}
-          for (dom, cid), c in sorted(checks.items()):
-              status, detail = c["status"], c["detail"]
-              print(f"{status:<5} {dom:<14} {cid:<26} {detail}")
-
-          errors = []
-          bad = checks.get(("(extra hosts)", "https:expired.badssl.com"))
-          if bad is None:
-              errors.append("no result for expired.badssl.com")
-          elif bad["status"] != "FAIL":
-              # The script reports an unreachable host as WARN, not FAIL. Say so
-              # clearly: it is a runner network problem, not a script bug.
-              if "resolve" in bad["detail"] or "reachable" in bad["detail"]:
-                  errors.append("expired.badssl.com was unreachable from this runner "
-                                "(network problem, not a script bug): re-run the job")
-              else:
-                  errors.append("expired certificate not detected: " + bad["status"])
-          for cid in ("spf", "dmarc"):
-              status = checks.get(("example.com", cid), {}).get("status")
-              if status != "PASS":
-                  errors.append(f"example.com {cid}: expected PASS, got {status}")
-          if code != 1:
-              errors.append(f"exit code {code}, expected 1 (one FAIL)")
-
-          for e in errors:
-              print(f"::error::{e}")
-          if errors:
-              sys.exit(1)
-          print("live checks OK")
-          '
+          # badssl.com times out from runners about 1 run in 10, and a re-run
+          # minutes later passes. Retry only on exit 75 ("badssl.com
+          # unreachable"); any wrong result fails at once, so retries can't
+          # hide a real bug. See tests/check-live-report.py.
+          for attempt in 1 2 3; do
+            set +e
+            bash domain-security-check.sh --json -f domains.txt -H expired.badssl.com > report.json
+            code=$?
+            python3 tests/check-live-report.py report.json "$code"
+            result=$?
+            set -e
+            [ "$result" -eq 75 ] || exit "$result"
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::expired.badssl.com unreachable (attempt $attempt of 3); retrying in 30s"
+              sleep 30
+            fi
+          done
+          echo "::error::expired.badssl.com unreachable on all 3 attempts (network problem, not a script bug)"
+          exit 1
