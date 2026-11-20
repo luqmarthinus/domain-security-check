@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Test double for dig, used only by tests/spf-limit.sh.
+# Answers TXT queries from $FAKE_RECORDS (lines of "name|value") in the same
+# quoted form `dig +short` prints, and returns nothing for other types.
+# Logs each TXT query for a name without "_" (the SPF tree, not DKIM, DMARC,
+# MTA-STS or TLS-RPT) to $DIG_LOG, so the test can count SPF queries.
+set -euo pipefail
+name=${!#}
+type=${*: -2:1}
+[ "$type" = TXT ] || exit 0
+case $name in *_*) ;; *) echo "$name" >> "$DIG_LOG" ;; esac
+awk -F'|' -v n="$name" '$1 == n { printf "\"%s\"\n", $2 }' "$FAKE_RECORDS"

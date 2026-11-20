@@ -63,19 +63,39 @@ to_epoch() {
 NOW=$(date +%s)
 days_until() { echo $(( ($1 - NOW) / 86400 )); }
 
-spf_lookups() {  # domain depth -> number of DNS-lookup mechanisms (recursive)
-  local dom=$1 depth=$2 rec term t n=0
-  [ "$depth" -gt 8 ] && { echo 99; return; }
-  rec=$(lower "$(txt "$dom" | grep -i '^v=spf1' | sed -n 1p)")
+# Count SPF DNS-lookup mechanisms the way receivers do (RFC 7208 4.6.4):
+# stop as soon as the count passes SPF_MAX_LOOKUPS, because the result is
+# already permerror. Without that stop, a record that includes itself
+# several times makes the walk grow exponentially and the run never ends,
+# so one hostile domain in a list would silently block every other check.
+#
+# Results go in globals, not stdout: each $(...) call runs in a subshell
+# that can't update a counter its caller sees, which is how the old version
+# lost track of the running total.
+#   SPF_COUNT  lookups counted (stops just past the limit)
+#   SPF_LOOP   "a b a" when an include chain returns to a domain on its own path
+spf_walk() {  # domain path-so-far [record already fetched]
+  local dom=$1 path=$2 rec=${3-} term t target
+  [ -n "$rec" ] || rec=$(lower "$(txt "$dom" | grep -i '^v=spf1' | sed -n 1p)")
   for term in $rec; do
     t=${term#[+~?-]}
     case $t in
-      include:*)  n=$((n + 1 + $(spf_lookups "${t#include:}" $((depth + 1))))) ;;
-      redirect=*) n=$((n + 1 + $(spf_lookups "${t#redirect=}" $((depth + 1))))) ;;
-      a|a:*|a/*|mx|mx:*|mx/*|ptr|ptr:*|exists:*) n=$((n + 1)) ;;
+      include:*|redirect=*)
+        target=${t#include:}; target=${target#redirect=}
+        SPF_COUNT=$((SPF_COUNT + 1))
+        # A loop only matters on the current path; the same include reached
+        # from two different branches is legitimate and counted twice.
+        case " $path " in *" $target "*)
+          SPF_LOOP="$path $target"; SPF_COUNT=$((SPF_MAX_LOOKUPS + 1)); return ;;
+        esac
+        [ "$SPF_COUNT" -gt "$SPF_MAX_LOOKUPS" ] && return
+        spf_walk "$target" "$path $target"
+        [ "$SPF_COUNT" -gt "$SPF_MAX_LOOKUPS" ] && return ;;
+      a|a:*|a/*|mx|mx:*|mx/*|ptr|ptr:*|exists:*)
+        SPF_COUNT=$((SPF_COUNT + 1))
+        [ "$SPF_COUNT" -gt "$SPF_MAX_LOOKUPS" ] && return ;;
     esac
   done
-  echo $n
 }
 # Pipelines read all their input (sed -n 1p, awk without exit) instead of
 # stopping early: on Linux, GNU tools print "write error: Broken pipe" when
@@ -144,9 +164,14 @@ check_domain() {
       *) all=WARN; w="no 'all' mechanism at the end" ;;
     esac
     record spf $all "$w. Record: $spf"
-    lookups=$(spf_lookups "$d" 0)
-    if [ "$lookups" -gt "$SPF_MAX_LOOKUPS" ]; then
-      record spf_lookups FAIL "$lookups DNS lookups (limit $SPF_MAX_LOOKUPS): receivers will treat SPF as broken (permerror)."
+    # Reuse the record fetched above instead of querying the apex again.
+    SPF_COUNT=0; SPF_LOOP=""
+    spf_walk "$d" "$d" "$(lower "$spf")"
+    lookups=$SPF_COUNT
+    if [ -n "$SPF_LOOP" ]; then
+      record spf_lookups FAIL "Include loop (${SPF_LOOP// / -> }): receivers will treat SPF as broken (permerror)."
+    elif [ "$lookups" -gt "$SPF_MAX_LOOKUPS" ]; then
+      record spf_lookups FAIL "More than $SPF_MAX_LOOKUPS DNS lookups (limit $SPF_MAX_LOOKUPS): receivers will treat SPF as broken (permerror)."
     elif [ "$lookups" -ge 8 ]; then
       record spf_lookups WARN "$lookups DNS lookups (limit $SPF_MAX_LOOKUPS): close to the limit."
     else
